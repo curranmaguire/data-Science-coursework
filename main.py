@@ -1,25 +1,31 @@
 import sys
-import subprocess
 import os
+
 import pandas as pd
 import cv2
 import shutil
-
 import numpy as np
 # =-------------------paths------------------
-# this needs to be sys.argv[1] to make sure the passed directory works
-directory = 'test_images'
+# this needs to be sys.argv[1] to make sure the passed directoresults_pathdirectory = 'test_images'
 # make sure to add the sys.argv[1] + to create the results in the test images section
 results_path = 'Results'
-
+directory = sys.argv[1]
 # ---------------results directory creation-------------
-if not os.path.exists(results_path):
-    os.makedirs(results_path)
+# Check if the directory exists
+if os.path.isdir(results_path):
+    # If it exists, delete its contents
+    for filename in os.listdir(results_path):
+        file_path = os.path.join(results_path, filename)
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            print(f"Failed to delete {file_path}. Reason: {e}")
 else:
-
-    shutil.rmtree(results_path)           # Removes all the subdirectories
-    os.makedirs(results_path)
-os.chmod(results_path, 0o777)
+    # If it does not exist, create the directory
+    os.mkdir(results_path)
 
 # ------------------get all images from directories names
 image_list = []
@@ -37,15 +43,27 @@ def show_image(img, name=''):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+#---------------------balance the colour channels------------------
+
+def balance_colour_channels(img):
+    channels = cv2.split(img)
+    k = 16
+    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(k,k))
+    equalized_channels = [clahe.apply(channel) for channel in channels]
+    #show_image(img)
+    merged = cv2.merge(equalized_channels)
+    #show_image(merged)
+    return merged
+
 # -------------------change the perspective of the image using the corners
 
 
 def change_perspectives(img):
-    grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
     pts_src = np.array(
         [[60, 12], [184, 7], [201, 234], [81, 238]], dtype='float32')
     pts_dst = np.array(
-        [[56, 1], [203, 1], [203, 255], [56, 255]], dtype='float32')
+        [[55, 1], [203, 2], [203, 255], [55, 254]], dtype='float32')
     matrix = cv2.getPerspectiveTransform(pts_src, pts_dst)
 
     img_output = cv2.warpPerspective(img, matrix, (600, 600))
@@ -119,9 +137,11 @@ def fill_in_missing_area(img):
 def filter_noise(img):
     # show_image(img)
     filtered = cv2.fastNlMeansDenoisingColored(img, None, 1, 5, 10, 15)
-    # show_image(filtered)
-    filtered = cv2.medianBlur(filtered, 5)
-    # show_image(filtered)
+    #show_image(filtered)
+    filtered = cv2.medianBlur(filtered, 3)
+    #show_image(filtered)
+    k = 3
+    filtered = cv2.GaussianBlur(filtered, (k,k),3)
     return filtered
 
 
@@ -187,14 +207,56 @@ def sharpen_image(img):
 def image_pipeline(img_path):
     # the main image processing loop
     img = cv2.imread(img_path)
-    filled_in_image = fill_in_missing_area(img)
-    perspective_image = change_perspectives(filled_in_image)
-    filtered_image = filter_noise(perspective_image)
+    
+    img = fill_in_missing_area(img)
+    img = change_perspectives(img)
+    img = filter_noise(img)
 
-    B_and_C_image = brightness_contrast_adjust(filtered_image)
-    sharpened = sharpen_image(B_and_C_image)
-    resized = cv2.resize(sharpened, (256, 256))
-    return resized
+    img = brightness_contrast_adjust(img)
+    img = balance_colour_channels(img)
+    img = sharpen_image(img)
+    img = cv2.resize(img, (256, 256))
+    return img
+
+scores_df = pd.DataFrame(columns=['image','score'])
+os_df = pd.read_excel('os.xlsx')
+od_df = pd.read_excel('od.xlsx')
+
+def calculate_score(img_name, img):
+    img_ID = '#' + img_name[8:11]
+    img_side = img_name[11:13]
+  
+    if img_side == 'OD':
+        row = os_df[os_df['ID'] == img_ID]
+    else:
+        row =od_df[od_df['ID'] == img_ID]
+    axial_length = row.at[row.index[0], 'Axial_Length']
+    
+    crop_size = (axial_length * 256) // 104 #half so we can use  this to go either sides of the center of the image.
+   
+    max = int(128 + crop_size)
+    min = int(128 - crop_size)
+    img = img[min:max,min:max]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    thresh_val, mask = cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        
+    # Count the number of white pixels in the image
+    num_white_pixels = cv2.countNonZero(mask)
+
+    # Calculate the total number of pixels in the image
+    num_pixels = mask.shape[0] * mask.shape[1]
+
+    # Calculate the number of black pixels
+    
+
+    # Calculate the black to white pixel ratio
+    ratio = num_white_pixels / num_pixels
+    new_row = pd.DataFrame({'image': [img_name], 'score': [ratio]})
+    return new_row
+
+
+
+
 
 
 # -----------------write the final image into the results section
@@ -202,24 +264,7 @@ for i in image_list:
     image_path = os.path.join(directory, i)
     write_path = os.path.join(results_path, i)
 
-    cv2.imwrite(write_path, image_pipeline(image_path), )
+    cv2.imwrite(write_path, image_pipeline(image_path))
+    #scores_df = scores_df._append(calculate_score(i, cv2.imread(write_path)), ignore_index = True)
+    
 
-# empty dataframe to add the results to
-scores_df = pd.DataFrame({'image': image_list,
-                          'score': np.array(len(image_list)*[np.nan])})
-
-result = subprocess.run(['python3', 'classify.py', '--data=Results',
-                         '--model=classifier.model'], capture_output=True)
-result = result.stdout.decode()
-split_result = result.split('\n')
-for i in split_result:
-
-    if int(i[2:4]) <= 20:
-        if 'healthy' not in i:
-            print(i)
-    if int(i[2:4]) > 20:
-        if 'sick' not in i:
-            print(i)
-    if 'im40' in i:
-        break
-print(split_result[-2])
