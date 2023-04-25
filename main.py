@@ -47,12 +47,13 @@ def show_image(img, name=''):
 
 def balance_colour_channels(img):
     channels = cv2.split(img)
-    k = 16
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(k,k))
+    k = 5
+    clahe = cv2.createCLAHE(clipLimit=0.5, tileGridSize=(k,k))
     equalized_channels = [clahe.apply(channel) for channel in channels]
     #show_image(img)
     merged = cv2.merge(equalized_channels)
     #show_image(merged)
+    #merged = cv2.medianBlur(merged,3)
     return merged
 
 # -------------------change the perspective of the image using the corners
@@ -140,8 +141,7 @@ def filter_noise(img):
     #show_image(filtered)
     filtered = cv2.medianBlur(filtered, 3)
     #show_image(filtered)
-    k = 3
-    filtered = cv2.GaussianBlur(filtered, (k,k),3)
+    
     return filtered
 
 
