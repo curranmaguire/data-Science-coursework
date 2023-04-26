@@ -75,7 +75,7 @@ def change_perspectives(img):
 
 def minor_inpaints(img):
     # this will deal with the small missing items
-
+    show_image(img)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     # Split LAB image into its channels
     h, s, v = cv2.split(hsv)
@@ -83,10 +83,11 @@ def minor_inpaints(img):
     # Apply thresholding on L channel
     thresh_value = 190
     _, mask = cv2.threshold(v, thresh_value, 240, cv2.THRESH_BINARY)
+   
     inpaint = cv2.medianBlur(img, 13)
     inpaint = cv2.GaussianBlur(inpaint, (5, 5), 0)
     img[mask < 1] = inpaint[mask < 1]
-
+    show_image(img)
     return img
 
 
@@ -101,15 +102,15 @@ def major_inpaint(img):
     mask = np.zeros(img.shape[:2], dtype=np.uint8)
     # Draw circle on mask
     cv2.circle(mask, (x, y), r, img.shape, -1)
-
+   
     # Use the Navier-Stokes based inpainting algorithm
     inpaint = cv2.inpaint(img, mask, 3, cv2.INPAINT_NS)
-
+  
     # Use the fast marching method to inpaint small details
     fm_mask = cv2.erode(mask, cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (5, 5)))
-    fm_inpaint = cv2.inpaint(img, fm_mask, 3, cv2.INPAINT_TELEA)
-
+    fm_inpaint = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+  
 
 # compared the results using this weighting and found that the standard inpaint was better
     alpha = 1
@@ -136,7 +137,7 @@ def fill_in_missing_area(img):
 
 
 def filter_noise(img):
-    # show_image(img)
+  
     filtered = cv2.fastNlMeansDenoisingColored(img, None, 1, 5, 10, 15)
     #show_image(filtered)
     filtered = cv2.medianBlur(filtered, 3)
@@ -181,10 +182,9 @@ def sharpen_image(img):
     # Convert the image from BGR to YCrCb color space
     img_ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
 
-    # Split the Y, Cr, and Cb channels
+  
     y, cr, cb = cv2.split(img_ycrcb)
 
-    # Apply sharpening to the Y channel (luminance)
     kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
     y_sharpened = cv2.filter2D(y, -1, kernel)
 
@@ -211,10 +211,13 @@ def image_pipeline(img_path):
     img = fill_in_missing_area(img)
     img = change_perspectives(img)
     img = filter_noise(img)
-
+    
     img = brightness_contrast_adjust(img)
+    
     img = balance_colour_channels(img)
+    
     img = sharpen_image(img)
+
     img = cv2.resize(img, (256, 256))
     return img
 
@@ -266,5 +269,6 @@ for i in image_list:
 
     cv2.imwrite(write_path, image_pipeline(image_path))
     #scores_df = scores_df._append(calculate_score(i, cv2.imread(write_path)), ignore_index = True)
-    
+
+#write score_df to computer
 
