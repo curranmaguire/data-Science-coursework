@@ -1,6 +1,6 @@
 import sys
 import os
-
+import math
 import pandas as pd
 import cv2
 import shutil
@@ -43,24 +43,25 @@ def show_image(img, name=''):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-#---------------------balance the colour channels------------------
+# ---------------------balance the colour channels------------------
+
 
 def balance_colour_channels(img):
     channels = cv2.split(img)
     k = 5
-    clahe = cv2.createCLAHE(clipLimit=0.5, tileGridSize=(k,k))
+    clahe = cv2.createCLAHE(clipLimit=0.5, tileGridSize=(k, k))
     equalized_channels = [clahe.apply(channel) for channel in channels]
-    #show_image(img)
+    # show_image(img)
     merged = cv2.merge(equalized_channels)
-    #show_image(merged)
-    #merged = cv2.medianBlur(merged,3)
+    # show_image(merged)
+    # merged = cv2.medianBlur(merged,3)
     return merged
 
 # -------------------change the perspective of the image using the corners
 
 
 def change_perspectives(img):
-    
+
     pts_src = np.array(
         [[60, 12], [184, 7], [201, 234], [81, 238]], dtype='float32')
     pts_dst = np.array(
@@ -75,7 +76,6 @@ def change_perspectives(img):
 
 def minor_inpaints(img):
     # this will deal with the small missing items
-    show_image(img)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     # Split LAB image into its channels
     h, s, v = cv2.split(hsv)
@@ -83,11 +83,11 @@ def minor_inpaints(img):
     # Apply thresholding on L channel
     thresh_value = 190
     _, mask = cv2.threshold(v, thresh_value, 240, cv2.THRESH_BINARY)
-   
+
     inpaint = cv2.medianBlur(img, 13)
     inpaint = cv2.GaussianBlur(inpaint, (5, 5), 0)
     img[mask < 1] = inpaint[mask < 1]
-    show_image(img)
+
     return img
 
 
@@ -102,15 +102,15 @@ def major_inpaint(img):
     mask = np.zeros(img.shape[:2], dtype=np.uint8)
     # Draw circle on mask
     cv2.circle(mask, (x, y), r, img.shape, -1)
-   
+
     # Use the Navier-Stokes based inpainting algorithm
     inpaint = cv2.inpaint(img, mask, 3, cv2.INPAINT_NS)
-  
+
     # Use the fast marching method to inpaint small details
     fm_mask = cv2.erode(mask, cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (5, 5)))
     fm_inpaint = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
-  
+
 
 # compared the results using this weighting and found that the standard inpaint was better
     alpha = 1
@@ -137,12 +137,12 @@ def fill_in_missing_area(img):
 
 
 def filter_noise(img):
-  
+
     filtered = cv2.fastNlMeansDenoisingColored(img, None, 1, 5, 10, 15)
-    #show_image(filtered)
+    # show_image(filtered)
     filtered = cv2.medianBlur(filtered, 3)
-    #show_image(filtered)
-    
+    # show_image(filtered)
+
     return filtered
 
 
@@ -182,7 +182,6 @@ def sharpen_image(img):
     # Convert the image from BGR to YCrCb color space
     img_ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
 
-  
     y, cr, cb = cv2.split(img_ycrcb)
 
     kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
@@ -207,59 +206,19 @@ def sharpen_image(img):
 def image_pipeline(img_path):
     # the main image processing loop
     img = cv2.imread(img_path)
-    
+
     img = fill_in_missing_area(img)
     img = change_perspectives(img)
     img = filter_noise(img)
-    
+
     img = brightness_contrast_adjust(img)
-    
+
     img = balance_colour_channels(img)
-    
+
     img = sharpen_image(img)
 
     img = cv2.resize(img, (256, 256))
     return img
-
-scores_df = pd.DataFrame(columns=['image','score'])
-os_df = pd.read_excel('os.xlsx')
-od_df = pd.read_excel('od.xlsx')
-
-def calculate_score(img_name, img):
-    img_ID = '#' + img_name[8:11]
-    img_side = img_name[11:13]
-  
-    if img_side == 'OD':
-        row = os_df[os_df['ID'] == img_ID]
-    else:
-        row =od_df[od_df['ID'] == img_ID]
-    axial_length = row.at[row.index[0], 'Axial_Length']
-    
-    crop_size = (axial_length * 256) // 104 #half so we can use  this to go either sides of the center of the image.
-   
-    max = int(128 + crop_size)
-    min = int(128 - crop_size)
-    img = img[min:max,min:max]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    thresh_val, mask = cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-        
-    # Count the number of white pixels in the image
-    num_white_pixels = cv2.countNonZero(mask)
-
-    # Calculate the total number of pixels in the image
-    num_pixels = mask.shape[0] * mask.shape[1]
-
-    # Calculate the number of black pixels
-    
-
-    # Calculate the black to white pixel ratio
-    ratio = num_white_pixels / num_pixels
-    new_row = pd.DataFrame({'image': [img_name], 'score': [ratio]})
-    return new_row
-
-
-
-
 
 
 # -----------------write the final image into the results section
@@ -268,7 +227,5 @@ for i in image_list:
     write_path = os.path.join(results_path, i)
 
     cv2.imwrite(write_path, image_pipeline(image_path))
-    #scores_df = scores_df._append(calculate_score(i, cv2.imread(write_path)), ignore_index = True)
 
-#write score_df to computer
-
+# write score_df to computer
